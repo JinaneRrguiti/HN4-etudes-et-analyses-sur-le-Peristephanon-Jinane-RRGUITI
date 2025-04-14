@@ -1,0 +1,720 @@
+---
+title: "Analyse_Peristephanon"
+author: "jinane_rrguiti"
+date: "2025-04-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+## Contexte de l'analyse
+
+Les textes analysés dans ce projet sont des hymnes du *Peristephanon* de Prudence, encodés au format XML selon une structure TEI.  
+Ils sont disponibles dans le répertoire suivant sur GitHub :  
+[**hymnes en XML sur GitHub**](https://github.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/tree/main/hymnes%20en%20xml)
+
+Chaque fichier représente un hymne structuré avec des balises XML permettant l'extraction automatisée de contenu (titres, vers, sections, etc.) pour l'analyse textuelle et littéraire.
+
+```{r corpus, options}
+
+# Charger le package
+library(xml2)
+
+
+# Liste des URLs des fichiers XML hébergés sur GitHub
+urls_xml <- c(
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/vincent.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/valerianus_hippolyte.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/saints_romains.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/quirinus.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/poeme_emeterius_chelidonius.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/petrus_paulus.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/laurent.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/fructueux_augurius_eulogius.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/eulalie.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/cyprianus.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/cassianus.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/baptistère.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/agnès.xml",
+  "https://raw.githubusercontent.com/JinaneRrguiti/HN4-etudes-et-analyses-sur-le-Peristephanon-Jinane-RRGUITI/main/hymnes%20en%20xml/18martyrscalahorra.xml"
+)
+
+
+# Lire tous les fichiers XML en ligne dans une liste
+xml_files <- lapply(urls_xml, read_xml)
+```
+
+
+
+```{r hymnes_extraites}
+# Fonction pour extraire le titre et les vers d’un poème depuis un fichier XML
+extract_poem_data_from_xml <- function(doc, nom_fichier) {
+  titre <- xml_text(xml_find_first(doc, ".//head"))
+  vers <- xml_text(xml_find_all(doc, ".//l | .//p | .//lg"))
+  
+  if (length(vers) == 0) {
+    warning(paste("⚠ Aucun vers extrait pour", nom_fichier))
+  }
+  
+  data.frame(
+    poeme = nom_fichier,
+    titre = titre,
+    texte = paste(vers, collapse = " "),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Appliquer la fonction avec les noms de fichiers
+all_poems <- purrr::map2_dfr(xml_files, basename(urls_xml), extract_poem_data_from_xml)
+
+# Vérifier
+#print(head(all_poems, 5))
+library(DT)
+datatable(all_poems, options = list(pageLength = 20))
+
+
+```
+
+
+```{r hymnes_nettoyees, message=FALSE, warning=FALSE}
+# Chargement des bibliothèques nécessaires
+library(xml2)
+library(tidyverse)
+library(stringr)
+library(DT)
+
+# Liste de mots vides (stopwords) en latin
+stopwords_latin <- c("et", "in", "de", "ad", "per", "ex", "cum", "ut", "sed",
+                     "non", "hic", "ille", "ego", "tu", "nos", "vos", "me", "te",
+                     "sui", "noster", "vester", "suo", "quod", "qui", "quae", "quem")
+
+# Définition d'une fonction prenant en entrée un document XML (déjà lu)
+# et son nom de fichier, pour en extraire et nettoyer le contenu textuel
+extract_clean_text_from_xml <- function(doc, nom_fichier) {
+  
+  # Extraction du texte à partir des balises <l>, <p>, ou <div>
+  text_lines <- xml_text(xml_find_all(doc, ".//l"))
+  if (length(text_lines) == 0) {
+    text_lines <- xml_text(xml_find_all(doc, ".//p"))
+  }
+  if (length(text_lines) == 0) {
+    text_lines <- xml_text(xml_find_all(doc, ".//div"))
+  }
+  
+  # Si aucun texte n'est trouvé, la fonction renvoie NULL
+  if (length(text_lines) == 0) {
+    return(NULL)
+  }
+
+  # Nettoyage du texte : mise en minuscules, suppression ponctuation/chiffres/espaces
+  clean_text <- text_lines %>%
+    tolower() %>%
+    str_replace_all("[[:punct:]]", " ") %>%
+    str_replace_all("[[:digit:]]", " ") %>%
+    str_squish()
+
+  # Tokenisation : séparation des mots
+  tokens <- unlist(strsplit(clean_text, "\\s+"))
+
+  # Suppression des mots vides en latin
+  tokens <- tokens[!(tokens %in% stopwords_latin)]
+
+  # Si aucun mot n'est retenu, renvoyer NULL
+  if (length(tokens) == 0) {
+    return(NULL)
+  }
+
+  # Retour d'un tableau avec le nom du poème et les mots nettoyés
+  data.frame(
+    poeme = nom_fichier,
+    token = tokens
+  )
+}
+
+# Application de la fonction à chaque document XML (déjà chargé dans xml_list)
+# en associant chaque objet XML à son nom de fichier (issu de urls_xml)
+all_poems_cleaned <- map2_dfr(xml_files, basename(urls_xml), extract_clean_text_from_xml)
+
+# Vérification que des données ont bien été extraites
+if (nrow(all_poems_cleaned) == 0) {
+  stop("🚨 Aucun texte valide n'a été extrait des fichiers XML après nettoyage.")
+}
+
+# Affichage interactif du résultat dans le document HTML
+datatable(all_poems_cleaned, options = list(pageLength = 20))
+```
+
+Nettoyage et visualisation des données textuelles
+
+Les fichiers XML encodant les hymnes du Peristephanon de Prudence ont été nettoyés et traités dans le but d'extraire un vocabulaire pertinent pour l'analyse. Le traitement consiste en plusieurs étapes automatisées appliquées à chaque document :
+
+Extraction du contenu textuel : les balises <l>, <p> ou <div> contenant le texte des poèmes sont parcourues afin de récupérer les lignes ou paragraphes.
+
+Nettoyage lexical : le texte est mis en minuscules, la ponctuation et les chiffres sont supprimés, les espaces sont normalisés.
+
+Tokenisation : le texte est ensuite découpé en unités lexicales (mots).
+
+Filtrage des mots vides (stopwords) : une liste de mots grammaticaux latins fréquents (comme et, in, non, qui, etc.) est appliquée pour supprimer les mots sans valeur analytique dans ce contexte.
+
+Le résultat de ce traitement est un tableau listant, pour chaque poème, l’ensemble des mots significatifs extraits. Ce tableau est affiché ci-dessous sous forme interactive, permettant :
+
+de trier les données par colonne (poème ou mot),
+
+de rechercher un mot spécifique dans l’ensemble du corpus,
+
+de naviguer facilement entre les pages du tableau.
+
+Cette visualisation constitue une base solide pour une analyse lexicale plus poussée (fréquences, comparaisons entre hymnes, visualisations graphiques, etc.).
+
+
+
+```{r analyse-frequences-corpus-xml, message=FALSE, warning=FALSE}
+#Chargement des bibliothèques nécessaires
+library(xml2)
+library(tidyverse)
+library(tidytext)
+library(stringr)
+library(ggplot2)
+
+#Fonction d'extraction du texte à partir d'un objet XML (déjà lu)
+extract_poem_data_from_doc <- function(doc, nom_fichier) {
+  titre <- xml_text(xml_find_first(doc, ".//head"))
+  vers <- xml_text(xml_find_all(doc, ".//l | .//p | .//lg"))
+  if (length(vers) == 0) {
+    warning(paste("⚠ Aucun vers extrait pour", nom_fichier))
+    return(NULL)
+  }
+  data.frame(poeme = nom_fichier, titre = titre, texte = paste(vers, collapse = " "), stringsAsFactors = FALSE)
+}
+
+#Application de la fonction à chaque document XML
+# xml_list : liste des objets XML déjà lus (avec read_xml)
+# urls_xml : liste des URLs (ou chemins) pour nommer les poèmes
+all_poems <- map2_dfr(xml_files, basename(urls_xml), extract_poem_data_from_doc)
+
+#Nettoyage et tokenisation du texte
+clean_text <- function(text) {
+  text <- tolower(text)
+  text <- gsub("[[:punct:]]", "", text)
+  text <- gsub("[0-9]", "", text)
+  text <- str_split(text, "\\s+")
+  return(unlist(text))
+}
+
+all_poems_cleaned <- all_poems %>%
+  mutate(tokens = map(texte, clean_text)) %>%
+  unnest(tokens) %>%
+  filter(tokens != "")
+
+# Liste des stopwords grammaticaux latins à exclure
+stopwords_grammaticaaux <- c(
+  "et", "aut", "ac", "sed", "nec", "si", "cum", "non", "ut", "in", "ad", "per", "ex", "de", "sub", "pro", "sine",
+  "nam", "enim", "quod", "quia", "atque", "quoque", "tamen", "post", "ante", "vero", "quidem", "dum", "nunc",
+  "ergo", "itaque", "hinc", "igitur", "vel", "inter", "inde", "qui", "quae", "quod", "cuius", "cui", "quem", "quam",
+  "quo", "quibus", "haec", "hoc", "hunc", "hanc", "hic", "ille", "illa", "illi", "ipse", "ipsa", "ipsum", "istud",
+  "eius", "eorum", "meus", "tuus", "suus", "noster", "vester", "aliquis", "quis", "quid", "quicumque", "quilibet",
+  "tibi", "quos", "his", "iam", "sic", "ubi", "nunc", "iamque", "numquam", "semper", "quidem", "huc", "usque",
+  "unde", "tunc", "est", "sunt", "esse", "erat", "erant", "fuit", "fuerunt", "fit", "fiunt", "fieri", "habere",
+  "habet", "habeo", "dicere", "dixit", "facere", "fecit", "videre", "vidit", "venit", "ire", "ii", "eunt", "sit", "ait"
+)
+
+# Calcul des fréquences des mots filtrés
+tokens_filtered <- all_poems_cleaned %>%
+  filter(!tokens %in% stopwords_grammaticaaux, str_length(tokens) > 2) %>%
+  count(poeme, tokens, sort = TRUE)
+
+# Analyse des fréquences absolues (top 10 sur l’ensemble du corpus)
+tokens_absolute <- tokens_filtered %>%
+  group_by(tokens) %>%
+  summarise(n = sum(n)) %>%
+  arrange(desc(n)) %>%
+  slice_max(n = 10, order_by = n) %>%
+  ungroup()
+
+# Visualisation des 10 mots les plus fréquents dans le corpus
+ggplot(tokens_absolute, aes(x = reorder(tokens, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Top 10 des mots les plus fréquents (corpus complet)",
+    x = "Mots",
+    y = "Fréquence absolue"
+  ) +
+  theme_minimal()
+```
+
+
+```{r frequence-par-poeme-interactive, message=FALSE, warning=FALSE}
+library(dplyr)
+library(plotly)
+
+# Calcul des fréquences absolues pour chaque poème (top 10)
+tokens_frequence_absolue_par_poeme <- tokens_filtered %>%
+  group_by(poeme, tokens) %>%
+  summarise(freq = sum(n), .groups = "drop") %>%
+  arrange(poeme, desc(freq)) %>%
+  group_by(poeme) %>%
+  slice_max(n = 10, order_by = freq) %>%
+  ungroup()
+
+# Liste des poèmes
+liste_poemes <- unique(tokens_frequence_absolue_par_poeme$poeme)
+
+# Création des traces (une par poème)
+traces <- lapply(liste_poemes, function(p) {
+  df <- tokens_frequence_absolue_par_poeme %>% filter(poeme == p)
+  list(
+    x = df$freq,
+    y = df$tokens,
+    type = "bar",
+    orientation = "h",
+    name = p,
+    visible = FALSE
+  )
+})
+
+# Rendre le premier graphique visible
+traces[[1]]$visible <- TRUE
+
+# Boutons du menu déroulant pour chaque poème
+buttons <- lapply(seq_along(traces), function(i) {
+  vis <- rep(FALSE, length(traces))
+  vis[i] <- TRUE
+  list(
+    method = "restyle",
+    args = list("visible", vis),
+    label = liste_poemes[i]
+  )
+})
+
+# Construction de la figure interactive
+plot <- plot_ly()
+for (trace in traces) {
+  plot <- do.call(add_trace, c(list(p = plot), trace))
+}
+
+plot <- layout(
+  plot,
+  title = "Top 10 des mots les plus fréquents par hymne",
+  xaxis = list(title = "Fréquence"),
+  yaxis = list(title = "Mot"),
+  updatemenus = list(list(
+    active = 0,
+    type = "dropdown",
+    buttons = buttons,
+    x = 0.1,
+    y = 1.15
+  ))
+)
+
+plot
+```
+
+
+Visualisation interactive des fréquences absolues par hymne
+Ce graphique interactif présente, pour chaque hymne du Peristephanon, les 10 mots les plus fréquents apparaissant après un nettoyage du texte (suppression de la ponctuation, des chiffres, mise en minuscules) et un filtrage des mots grammaticaux latins fréquents (stopwords).
+
+Méthodologie :
+Pour chaque poème, le texte est segmenté en mots (tokenisation).
+
+Les mots courants, purement grammaticaux, sont supprimés à l’aide d’une liste de stopwords latins.
+
+Les fréquences absolues sont ensuite calculées : il s’agit du nombre d’occurrences d’un mot donné dans un hymne spécifique, sans pondération.
+
+Visualisation :
+Un menu déroulant permet de sélectionner un hymne.
+
+Le graphique associé montre les 10 mots les plus fréquents de cet hymne, représentés par des barres horizontales dont la longueur correspond au nombre d’occurrences.
+
+Les mots sont triés de haut en bas selon leur fréquence décroissante.
+
+Intérêt analytique :
+Ce type de visualisation permet d’identifier les termes saillants propres à chaque hymne.
+
+Il est utile pour repérer les motifs lexicaux récurrents (ex. : martyr, gloria, crux) ou au contraire les termes spécifiques à un saint ou à un événement particulier.
+
+En comparant les graphiques, il devient possible de repérer des thématiques dominantes, des différences de vocabulaire, voire des stratégies poétiques propres à certains poèmes.
+
+
+```{r tfidf-tableau-et-graphique, fig.width=14, fig.height=16, message=FALSE, warning=FALSE}
+library(dplyr)
+library(tidytext)
+library(stringr)
+library(purrr)
+library(ggplot2)
+library(DT)
+library(xml2)
+
+# Si les fichiers XML ont déjà été lus :
+# xml_list <- lapply(xml_files, read_xml)
+
+# Fonction adaptée à une liste de documents XML déjà parsés
+extract_poem_data_from_doc <- function(doc, nom_fichier) {
+  titre <- xml_text(xml_find_first(doc, ".//head"))
+  vers <- xml_text(xml_find_all(doc, ".//l | .//p | .//lg"))
+  if (length(vers) == 0) {
+    warning(paste("Aucun vers extrait dans", nom_fichier))
+    return(NULL)
+  }
+  data.frame(
+    poeme = nom_fichier,
+    titre = titre,
+    texte = paste(vers, collapse = " "),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Appliquer à une liste d’objets XML (déjà lus) avec noms
+all_poems <- map2_dfr(xml_files, basename(urls_xml), extract_poem_data_from_doc)
+
+# Nettoyage et tokenisation
+clean_text <- function(text) {
+  text <- tolower(text)
+  text <- gsub("[[:punct:]]", "", text)
+  text <- gsub("[0-9]", "", text)
+  text <- str_split(text, "\\s+")
+  return(unlist(text))
+}
+
+all_poems_cleaned <- all_poems %>%
+  mutate(tokens = map(texte, clean_text)) %>%
+  unnest(tokens) %>%
+  filter(tokens != "")
+
+# Stopwords latins
+stopwords_grammaticaux <- c("et", "in", "de", "ad", "per", "ex", "cum", "ut", "sed", "non", "hic", "ille", "ego", "tu",
+                            "nos", "vos", "me", "te", "sui", "noster", "vester", "suo", "quod", "qui", "quae", "quem",
+                            "est", "esse", "erat", "erant", "fuit", "fuerunt", "fit", "fiunt", "fieri")
+
+tokens_filtered <- all_poems_cleaned %>%
+  filter(!tokens %in% stopwords_grammaticaux, str_length(tokens) > 2) %>%
+  count(poeme, tokens, sort = TRUE)
+
+# TF-IDF + top 5 par hymne
+tokens_tfidf_top5 <- tokens_filtered %>%
+  bind_tf_idf(tokens, poeme, n) %>%
+  arrange(poeme, desc(tf_idf)) %>%
+  group_by(poeme) %>%
+  slice_max(order_by = tf_idf, n = 5) %>%
+  ungroup()
+
+# Tableau interactif
+datatable(tokens_tfidf_top5, 
+          options = list(pageLength = 10),
+          colnames = c("Poème", "Mot", "Occurrences", "TF", "IDF", "Score TF-IDF"))
+
+# Visualisation
+ggplot(tokens_tfidf_top5, aes(x = reorder(tokens, tf_idf), y = tf_idf)) +
+  geom_col(fill = "darkblue") +
+  coord_flip() +
+  facet_wrap(~ poeme, scales = "free_y", ncol = 2) +
+  labs(
+    title = "Top 5 des mots les plus spécifiques par hymne (TF-IDF)",
+    x = "Mot",
+    y = "Score TF-IDF"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(
+    strip.text = element_text(face = "bold"),
+    axis.text.y = element_text(size = 6)  # Taille de texte réduite
+  )
+
+
+```
+
+Ce script applique une analyse TF-IDF (Term Frequency–Inverse Document Frequency) pour identifier les mots spécifiques à chaque hymne du corpus. Contrairement aux fréquences absolues, le score TF-IDF prend en compte l’occurrence d’un mot dans un poème par rapport à sa rareté dans l’ensemble du corpus. Plus un mot est fréquent dans un hymne et rare ailleurs, plus son score TF-IDF est élevé.
+Le rapport généré liste les 5 mots les plus distinctifs par hymne, accompagnés de leur score et d’un court commentaire d’interprétation lexicale.
+
+```{r analyse-kwic-corps-matiere, message=FALSE, warning=FALSE, fig.width=10, fig.height=7}
+library(xml2)
+library(dplyr)
+library(tidytext)
+library(stringr)
+library(purrr)
+library(ggplot2)
+library(igraph)
+library(ggraph)
+library(wordcloud)
+library(RColorBrewer)
+library(DT)
+
+
+# Extraction des textes des hymnes
+extract_poem_data <- function(file) {
+  doc <- read_xml(file)
+  titre <- xml_text(xml_find_first(doc, ".//head"))
+  vers <- xml_text(xml_find_all(doc, ".//l | .//p | .//lg"))
+  if (length(vers) == 0) return(NULL)
+  data.frame(poeme = basename(file), titre = titre, texte = paste(vers, collapse = " "), stringsAsFactors = FALSE)
+}
+#all_poems <- map_dfr(xml_files, extract_poem_data)
+
+# Nettoyage et tokenisation
+clean_text <- function(text) {
+  text %>%
+    tolower() %>%
+    str_replace_all("[[:punct:][:digit:]]", " ") %>%
+    str_squish() %>%
+    str_split("\\s+") %>%
+    unlist()
+}
+all_poems_cleaned <- all_poems %>%
+  mutate(tokens = map(texte, clean_text)) %>%
+  unnest(tokens) %>%
+  filter(tokens != "")
+
+# Liste des mots-clés ciblés
+keywords <- c("membra", "artus", "corpus", "sanguis", "os", "cruor", "pectus", "manus", "caput",
+              "ferro", "aqua", "igne", "lapis", "aurum", "argentum", "terra")
+
+# Extraction KWIC (contexte gauche et droit)
+kwic_results <- all_poems_cleaned %>%
+  filter(tokens %in% keywords) %>%
+  group_by(poeme) %>%
+  mutate(contexte_gauche = lag(tokens, 2), contexte_droit = lead(tokens, 2)) %>%
+  filter(!is.na(contexte_gauche) & !is.na(contexte_droit)) %>%
+  select(poeme, contexte_gauche, tokens, contexte_droit) %>%
+  group_by(poeme) %>% slice_head(n = 30) %>% ungroup()
+
+# Affichage tableau interactif des résultats KWIC
+datatable(kwic_results, options = list(pageLength = 10),
+          colnames = c("Poème", "Contexte gauche", "Mot-clé", "Contexte droit"))
+
+# Réseau de cooccurrences entre mot-clé et contexte
+cooc <- kwic_results %>%
+  select(contexte_gauche, tokens, contexte_droit) %>%
+  pivot_longer(cols = c(contexte_gauche, contexte_droit), names_to = "position", values_to = "mot") %>%
+  count(tokens, mot, sort = TRUE) %>%
+  filter(n > 1)
+
+if (nrow(cooc) > 0) {
+  graph <- graph_from_data_frame(cooc, directed = FALSE)
+  ggraph(graph, layout = "fr") +
+    geom_edge_link(aes(edge_alpha = n), show.legend = FALSE) +
+    geom_node_point(size = 5, color = "darkred") +
+    geom_node_text(aes(label = name), repel = TRUE) +
+    theme_void() +
+    ggtitle("Réseau lexical des termes du corps et de la matière")
+}
+```
+
+Analyse KWIC : vocabulaire du corps et de la matière
+Ce bloc de code effectue une analyse Keyword in Context centrée sur un champ lexical lié à l’anatomie (manus, corpus, sanguis, etc.) et aux éléments (aqua, igne, lapis, etc.). Il permet d’identifier les contextes récurrents autour de ces mots et d’étudier leur rôle symbolique dans les hymnes de Prudence.
+
+Le tableau interactif liste les occurrences par hymne, avec les mots précédents et suivants.
+
+Le réseau lexical visualise les cooccurrences : il révèle les proximités sémantiques et stylistiques (ex. : sanguis associé à cruor, ou igne à lapis).
+
+Un nuage de mots (optionnel) peut compléter l’analyse pour visualiser l’intensité des associations.
+
+
+```{r lda-topic-modeling-from-xml-list, message=FALSE, warning=FALSE}
+library(xml2)
+library(dplyr)
+library(tidyr)
+library(tidytext)
+library(purrr)
+library(tm)
+library(topicmodels)
+library(udpipe)
+library(knitr)
+library(DT)
+
+# Étape 1 — Extraction du texte XML déjà chargé (depuis xml_list)
+extract_text_from_doc <- function(doc) {
+  nodes <- xml_find_all(doc, ".//l | .//p | .//lg")
+  paste(xml_text(nodes), collapse = " ")
+}
+
+corpus_df <- tibble(
+  doc_id = basename(urls_xml),
+  text = map_chr(xml_files, extract_text_from_doc)
+)
+
+# Étape 2 — Nettoyage
+clean_text <- function(txt) {
+  txt %>%
+    tolower() %>%
+    gsub("[[:punct:]]", " ", .) %>%
+    gsub("[[:digit:]]", " ", .) %>%
+    gsub("\\s+", " ", .) %>%
+    str_squish()
+}
+
+corpus_df <- corpus_df %>% mutate(text = map_chr(text, clean_text))
+
+# Étape 3 — Lemmatisation avec UDPipe (latin)
+ud_model <- udpipe_download_model(language = "latin")
+ud_model <- udpipe_load_model(ud_model$file_model)
+
+annotation <- udpipe_annotate(ud_model, x = corpus_df$text, doc_id = corpus_df$doc_id)
+anno_df <- as.data.frame(annotation)
+
+# Reconstruction du texte lemmatisé
+lemmatized_df <- anno_df %>%
+  filter(!is.na(lemma)) %>%
+  group_by(doc_id) %>%
+  summarise(lem_text = paste(lemma, collapse = " ")) %>%
+  ungroup()
+
+# Fusion avec le corpus original
+corpus_df <- left_join(corpus_df, lemmatized_df, by = "doc_id")
+
+# Étape 4 — Construction du corpus TM et DTM
+corpus <- Corpus(VectorSource(corpus_df$lem_text)) %>%
+  tm_map(content_transformer(tolower)) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers)
+
+# Stopwords latins personnalisés
+stopwords_latins <- c("et", "in", "de", "ad", "cum", "ut", "non", "hic", "ille", "quod", "qui",
+                      "haec", "quae", "tamen", "est", "esse", "erat", "fuit", "fieri", "sum",
+                      "ego", "sibi", "suus", "tibi", "tu", "nos", "noster", "tuus", "me", "te")
+
+corpus <- corpus %>%
+  tm_map(removeWords, stopwords_latins) %>%
+  tm_map(stripWhitespace)
+
+dtm <- DocumentTermMatrix(corpus)
+dtm <- removeSparseTerms(dtm, 0.98)
+dtm <- dtm[rowSums(as.matrix(dtm)) > 0, ]
+
+# Étape 5 — LDA : extraction des topics
+k <- 4
+set.seed(1234)
+lda_model <- LDA(dtm, k = k, control = list(seed = 1234))
+
+# Extraction des top termes par topic
+topics <- tidy(lda_model, matrix = "beta") %>%
+  group_by(topic) %>%
+  slice_max(order_by = beta, n = 10) %>%
+  arrange(topic, -beta) %>%
+  ungroup()
+
+# Affichage dans le Rmd : tableau interactif
+datatable(topics,
+          colnames = c("Topic", "Terme", "Probabilité β"),
+          options = list(pageLength = 10),
+          caption = "Top 10 termes par topic selon le modèle LDA")
+```
+
+
+Ce bloc applique une analyse LDA (Latent Dirichlet Allocation) à un corpus lemmatisé d’hymnes latins. Il identifie automatiquement 4 grandes thématiques en regroupant les mots qui apparaissent ensemble dans les documents. Chaque topic est présenté avec ses termes dominants et un commentaire interprétatif basé sur leur sémantique probable.
+Cette méthode permet de révéler les structures thématiques implicites d’un corpus, sans lecture ligne à ligne, et de repérer les grands noyaux sémantiques qui organisent le discours.
+Ce chunk applique une analyse thématique non supervisée (Latent Dirichlet Allocation) à un corpus d’hymnes latins lemmatisés. Pour chaque topic, les 10 termes ayant la plus forte probabilité d'appartenance (β) sont affichés. Cela permet d’identifier les thématiques dominantes implicites de chaque hymne (ex. : spiritualité, souffrance, matière).
+
+Interprétation du tableau : 
+-Colonne Topic
+Le numéro du thème (topic) identifié automatiquement par le modèle. Ici, vous avez demandé k = 4, donc vous aurez des topics numérotés de 1 à 4.
+
+Chaque topic regroupe des mots qui ont tendance à apparaître ensemble dans les mêmes documents.
+
+-Colonne Terme
+Un des 10 mots les plus représentatifs de ce topic.
+
+Ce sont les mots que le modèle considère comme les plus caractéristiques du thème correspondant.
+
+-Colonne Probabilité β
+La valeur β (bêta) est la probabilité que le mot appartienne à ce topic :
+
+Plus β est élevé, plus le mot est caractéristique du topic.
+
+Les mots avec des β proches sont souvent co-thématiques.
+
+Exemple : dans le Topic 1, deus, ipse, corpus apparaissent souvent ensemble, dans les mêmes documents.
+
+Pourquoi des mots comme sed, jam, neque, quis apparaissent ?Cela signifie que ces mots n'ont pas été filtrés comme stopwords, donc ils apparaissent fréquemment. Le modèle LDA les "attrape" car il détecte leur récurrence, même si ce ne sont pas des mots sémantiquement forts.
+
+```{r lemmatisation-hymnes-udpipe, message=FALSE, warning=FALSE}
+# Chargement des bibliothèques
+library(xml2)
+library(tidyverse)
+library(tidytext)
+library(udpipe)
+library(DT)
+
+# Extraction du texte depuis les fichiers XML (xml_files est déjà défini)
+extract_poem_data <- function(file) {
+  doc <- read_xml(file)
+  titre_node <- xml_find_first(doc, ".//head")
+  titre <- if (!is.na(titre_node)) xml_text(titre_node) else "Titre inconnu"
+  vers_nodes <- xml_find_all(doc, ".//l | .//p | .//lg")
+  vers <- if (length(vers_nodes) > 0) xml_text(vers_nodes) else NULL
+  if (is.null(vers) || length(vers) == 0) return(NULL)
+  data.frame(poeme = basename(file), titre = titre, texte = paste(vers, collapse = " "), stringsAsFactors = FALSE)
+}
+
+# Extraction des textes
+#all_poems <- map_dfr(xml_files, extract_poem_data)
+
+# Nettoyage du texte
+clean_text <- function(text) {
+  text <- tolower(text)
+  text <- gsub("[[:punct:]]", "", text)
+  text <- gsub("[0-9]", "", text)
+  str_replace_all(text, "\\s+", " ")
+}
+all_poems <- all_poems %>% mutate(texte = map_chr(texte, clean_text))
+
+# Lemmatisation avec le modèle Latin d'UDPipe
+ud_model <- udpipe_download_model(language = "latin")
+ud_model <- udpipe_load_model(ud_model$file_model)
+
+lemmatisation_results <- map_dfr(all_poems$poeme, function(hymne) {
+  text <- all_poems %>% filter(poeme == hymne) %>% pull(texte)
+  annotation <- udpipe_annotate(ud_model, x = text) %>% as.data.frame()
+  annotation$poeme <- hymne
+  annotation
+})
+
+# Liste des lemmes d'intérêt (corps et matière)
+keywords <- c("membra", "artus", "corpus", "sanguis", "os", "cruor", "pectus", "manus", "caput",
+              "ferro", "aqua", "igne", "lapis", "aurum", "argentum", "terra")
+
+# Filtrage
+lemmatisation_filtered <- lemmatisation_results %>%
+  filter(lemma %in% keywords) %>%
+  select(poeme, token, lemma, upos)
+
+# Affichage dans le rapport RMarkdown
+datatable(
+  lemmatisation_filtered,
+  options = list(pageLength = 10),
+  caption = "Termes du corps et de la matière identifiés dans les hymnes (lemmatisation avec UDPipe)"
+)
+```
+
+```{r visualisation-lemmes-corpus, message=FALSE, warning=FALSE}
+# Comptage des fréquences des lemmes filtrés
+frequences_lemmes <- lemmatisation_filtered %>%
+  count(lemma, sort = TRUE)
+
+# Visualisation en barplot des 10 lemmes les plus fréquents
+frequences_lemmes %>%
+  slice_max(n, n = 10) %>%
+  ggplot(aes(x = reorder(lemma, n), y = n)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "Top 10 des lemmes du champ lexical du corps et de la matière",
+       x = "Lemme", y = "Fréquence") +
+  theme_minimal(base_size = 12)
+```
+
+### Explication du code
+
+Ce code effectue les étapes suivantes :
+
+- Extraction : récupère les textes encodés en XML depuis la liste `xml_files`.
+- Nettoyage : met en minuscules, supprime ponctuation, chiffres, et espaces superflus.
+- Lemmatisation : utilise le modèle latin d'UDPipe pour annoter chaque mot avec son lemme et sa catégorie grammaticale.
+- Filtrage : ne conserve que les lemmes relatifs au corps et à la matière.
+- Affichage : génère un tableau interactif dans le rendu HTML.
+
+
+
+
+
